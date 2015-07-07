@@ -1,0 +1,365 @@
+buildscript {
+    repositories {
+        mavenLocal()
+        jcenter()
+        mavenCentral()
+
+    }
+    dependencies {
+        classpath "com.github.samueltbrown:gradle-cucumber-plugin:+"
+    }
+}
+
+import org.gradle.logging.ConsoleRenderer
+
+plugins {
+    id 'groovy'
+    id 'build-dashboard'
+    id 'idea'
+    id 'eclipse'
+    id 'jacoco'
+    id 'project-report'
+    id 'net.researchgate.release' version '2.1.2'
+}
+
+project.reporting.baseDir = 'reports'
+ext.unitTestFailures = 0
+ext.deployDir = file('deploy')
+
+
+htmlDependencyReport {
+    projects = project.allprojects
+}
+
+idea {
+    module {
+        excludeDirs += file('.idea')
+        excludeDirs += file('deploy')
+
+        downloadJavadoc = true
+        downloadSources = true
+
+        iml.withXml {provider ->
+            /**
+             * Add gradle setup to the module
+             */
+            provider.node.@'external.linked.project.path' = '$MODULE_DIR$'
+            provider.node.@'external.root.project.path' = '$MODULE_DIR$'
+            provider.node.@'external.system.id' = 'GRADLE'
+            provider.node.@'external.system.module.group' = ''
+            provider.node.@'external.system.module.version' = version
+        }
+    }
+    project {
+        languageLevel = rootProject.sourceCompatibility
+        vcs = 'Git'
+        ipr.withXml {provider ->
+            /**
+             * Setup the gradle settings to allow integration into intellij without intellig getting confused
+             */
+            String GRADLE_HOME = System.getenv('GRADLE_HOME') ? System.getenv('GRADLE_HOME') : ''
+            def moduleList = modules.collect {
+                String contRoot = it.contentRoot.toURI().toURL().toString()
+                String root = rootDir.toURI().toURL().toString()
+                String path = contRoot.replace(root, '$PROJECT_DIR$/')
+                path.endsWith('/') ? path.substring(0, path.lastIndexOf('/')) : path
+            }
+
+            def gradleSettings = {
+                option(name: 'linkedExternalProjectsSettings') {
+                    GradleProjectSettings() {
+                        option(name: 'distributionType', value: 'DEFAULT_WRAPPED')
+                        option(name: 'externalProjectPath', value: '$PROJECT_DIR$')
+                        option(name: 'gradleHome', value: GRADLE_HOME)
+                        option(name: 'modules') {
+
+                            set(comment: "${modules.collect {it.name}.join(',')}") {
+                                for (String m : moduleList) {
+                                    option(value: m)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Node gradleNode = provider.node.component.find {it.@name == 'GradleSettings'}
+            if (gradleNode != null) {
+                provider.node.remove(gradleNode)
+            }
+            provider.node.component[0].plus {
+                component(name: 'GradleSettings', gradleSettings)
+            }
+
+            if (provider.node.component.find {it.@name == 'GradleUISettings'} == null) {
+                provider.node.component[0].plus {
+                    component(name: 'GradleUISettings') {
+                        setting(name: 'root')
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Setup the workspace (IWS) file
+     */
+    workspace.iws.withXml {provider ->
+
+        def runManager = provider.node.component.find {it.@name == 'RunManager'}
+
+        /**
+         * Setup JUnit defaults to have the extra JVM options we know we need
+         */
+        def junitDefaults = runManager.configuration.find {it.@type == 'JUnit'}
+        if (junitDefaults != null) {
+            def workingDir = junitDefaults.option.find {it.@name == 'WORKING_DIRECTORY'}
+            workingDir.@value = '$PROJECT_DIR$'
+        }
+
+        def propertiesComponent = provider.node.component.find {
+            it.@name == 'PropertiesComponent'
+        }
+        def dynamicclasspath = propertiesComponent.property.find {it.@name == 'dynamic.classpath'}
+        if (dynamicclasspath != null) {
+            dynamicclasspath.@value == 'true'
+        }
+        else {
+            propertiesComponent.property[-1].plus {
+                property(name: 'dynamic.classpath', value: 'true')
+            }
+        }
+
+        /**
+         * Setup cucumber defaults to have the extra JVM options we know we need
+         */
+        def cucumberDefaults = runManager.configuration.find {it.@type == 'CucumberJavaRunConfigurationType'}
+        if (cucumberDefaults != null) {
+            def workingDir = cucumberDefaults.option.find {it.@name == 'WORKING_DIRECTORY'}
+            workingDir.@value = '$MODULE_DIR$'
+        }
+        else {
+            // Default iws files dont have cucumber, so on a first time generation we will need to add the whole block
+            runManager.configuration[-1].plus {
+                configuration(default: 'true', type: 'CucumberJavaRunConfigurationType', factoryName: 'Cucumber java') {
+                    extension(name: "coverage", enabled: "false", merge: "false", sample_coverage: "true", runner: "idea")
+                    option(name: "myFilePath")
+                    option(name: "GLUE")
+                    option(name: "myNameFilter")
+                    option(name: "myGeneratedName")
+                    option(name: "MAIN_CLASS_NAME")
+                    option(name: "VM_PARAMETERS")
+                    option(name: "PROGRAM_PARAMETERS")
+                    option(name: "WORKING_DIRECTORY", value: "\$MODULE_DIR\$")
+                    option(name: "ALTERNATIVE_JRE_PATH_ENABLED", value: "false")
+                    option(name: "ALTERNATIVE_JRE_PATH")
+                    option(name: "ENABLE_SWING_INSPECTOR", value: "false")
+                    option(name: "ENV_VARIABLES")
+                    option(name: "PASS_PARENT_ENVS", value: "true")
+                    module(name: "")
+                    envs()
+                    method()
+                }
+            }
+        }
+
+    }
+}
+
+task wrapper(type: Wrapper) {
+    gradleVersion = project.gradleVersion
+}
+
+task show() << {
+    logger.quiet "All seems to be working"
+}
+
+build {
+    description =
+            'Assembles the project, builds the release archive and runs the unit tests. The complete build process.'
+    dependsOn 'check', 'buildDashboard'
+    doLast {
+        if (unitTestFailures) {
+            String grammer = unitTestFailures == 1 ? 'was 1 unit test failure' : "were $unitTestFailures unit test failures"
+            File indexFile = file("$tasks.unitTest.destinationDir/index.html")
+            String reportUrl = new ConsoleRenderer().asClickableFileUrl(indexFile)
+            logger.quiet("There $grammer. See the report at $reportUrl. (Ctrl+click the URL to open)")
+        }
+    }
+}
+
+clean {
+    delete 'logs', 'reports', 'deploy'
+}
+
+/**
+ * Unit Test task,
+ * This task will generate a TestReport in HTML format for the tests which it reports on
+ * Any unit tests/test tasks should be set to be reported on and depended on by this task
+ */
+task unitTest(type: TestReport) {
+    description = 'Run Unit Tests and compile results into HTML report.'
+    destinationDir file("$rootDir/reports/unitTests")
+    group 'Testing'
+    doLast {
+        logger.info("Test failure count: {}", unitTestFailures)
+        if (unitTestFailures) {
+            String grammer = unitTestFailures == 1 ? 'was 1 unit test failure' : "were $unitTestFailures unit test failures"
+            File indexFile = file("$destinationDir/index.html")
+            String reportUrl = new ConsoleRenderer().asClickableFileUrl(indexFile)
+            logger.quiet("There $grammer. See the report at $reportUrl. (Ctrl+click the URL to open)")
+        }
+    }
+    dependsOn tasks.assemble
+}
+
+
+/**
+ * Define the jar/war manifest
+ */
+def manifestAttrs = [
+        "Created-By"            : "${JavaVersion.current().toString()} JVM, ${gradle.gradleVersion} Gradle",
+        "Specification-Title"   : "$rootProject.name $project.name Classes",
+        "Specification-Version" : version,
+        "Implementation-Title"  : "${project.group.toLowerCase()}.${project.name.toLowerCase()}",
+        "Implementation-Version": "${version}.dev",
+        "Implementation-Vendor" : "Oxford University",
+]
+
+
+
+jacoco {
+    toolVersion = '+'
+}
+
+logger.quiet "Project: $name > group: $group, version: $version"
+
+
+if (file("$projectDir/src/cucumber").exists()) {
+    apply plugin: "com.github.samueltbrown.cucumber"
+    tasks.cucumber {
+        group 'testing'
+        tasks.check.dependsOn it
+        rootProject.tasks.test.dependsOn it
+    }
+
+    cucumber {
+        formats = ['pretty',
+                   "html:$rootProject.reporting.baseDir/cucumber/${project.name}".toString(),
+                   "json:$rootProject.reporting.baseDir/cucumber/${project.name}.json".toString(),
+                   "junit:$rootProject.reporting.baseDir/cucumber/${project.name}.xml".toString()
+        ]
+        ignoreFailures = true
+    }
+    // Stop the test configurations from using log4j as they use logback
+    configurations.cucumberRuntime {
+        exclude module: 'slf4j-log4j12'
+        exclude module: 'log4j'
+    }
+}
+
+repositories {
+    jcenter()
+    mavenCentral()
+}
+
+apply from: "dependencies.gradle"
+
+// Stop the test configurations from using log4j as they use logback
+configurations.testRuntime {
+    exclude module: 'slf4j-log4j12'
+    exclude module: 'log4j'
+}
+
+/**
+ * Setup the Unit testing
+ * Any projects with code plugins will also have test cases, these are all unit tests ONLY
+ */
+test {
+    group 'testing'
+    useJUnit()
+    ignoreFailures = true
+    systemProperties(['file.encoding': 'UTF-8'])
+    workingDir = rootDir
+    forkEvery = 100
+    maxParallelForks = 20
+    onlyIf {
+        !sourceSets.test.allSource.empty
+    }
+    afterSuite {td, tr ->
+        if (!(td.parent)) {
+            rootProject.unitTestFailures = rootProject.unitTestFailures + tr.failedTestCount
+        }
+    }
+    rootProject.tasks.unitTest.dependsOn it
+    rootProject.tasks.unitTest.reportOn it
+}
+
+/**
+ * Setup the default output for the jacoco test report to be html.
+ * Jenkins will read straight from the exec file
+ */
+jacocoTestReport {
+    group 'verification'
+    reports {
+        xml.enabled false
+        csv.enabled false
+        html.destination "$rootProject.reporting.baseDir/jacoco/${project.name}"
+    }
+    tasks.check.dependsOn it
+}
+
+task sourcesJar(type: Jar, dependsOn: classes) {
+    group 'build'
+    classifier = 'sources'
+    from sourceSets.main.allSource
+}
+
+tasks.javadoc.failOnError false
+task javadocJar(type: Jar, dependsOn: javadoc) {
+    group 'build'
+    classifier = 'javadoc'
+    from javadoc.destinationDir
+}
+
+
+/**
+ * Add jars as artifacts, this will cause them to be built as part of assemble and will automatically be
+ * included as part of the publishing mechanism.
+ * For some reason, some change made has meant that any tars included stop the automatic addition of the standard
+ * jar file, therefore we define it as required.
+ */
+artifacts {
+    archives sourcesJar
+    archives javadocJar
+}
+
+
+evaluationDependsOnChildren()
+afterEvaluate {
+    /*
+  * Set up compile tasks to use default encoding and other compile options.
+  */
+    tasks.withType(JavaCompile) {JavaCompile compile ->
+        compile.options.encoding = 'UTF-8'
+        //compile.options.incremental = useIncrementalJavaBuilding.toBoolean()
+        compile.options.compilerArgs.add('-Xlint:unchecked')
+        compile.options.compilerArgs.add('-Xlint:deprecation')
+    }
+
+    tasks.withType(GroovyCompile) {GroovyCompile compile ->
+        compile.groovyOptions.encoding = 'UTF-8'
+        compile.options.encoding = 'UTF-8'
+        compile.groovyOptions.keepStubs = true
+        compile.groovyOptions.stubDir = file("$buildDir/stubs")
+        compile.groovyOptions.optimizationOptions.put('all', true)
+    }
+    tasks.withType(Jar) {
+        jar {
+            manifest {
+                attributes(manifestAttrs)
+            }
+            sourceCompatibility = project.sourceCompatibility
+        }
+    }
+}
