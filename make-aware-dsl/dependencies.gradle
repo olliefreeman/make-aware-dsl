@@ -1,0 +1,32 @@
+/**
+ * Only dependencies which are required across ALL projects should be in here
+ */
+dependencies {
+
+    /**
+     * Core dependencies
+     */
+    compile group: 'org.codehaus.groovy', name: 'groovy-all', version: '2.4.+'
+    compile group: 'com.fasterxml.jackson.core', name: 'jackson-databind', version: '+'
+    compile group: 'com.fasterxml.jackson.datatype', name: 'jackson-datatype-joda', version: '+'
+
+    /**
+     * Logging
+     */
+    // Use slf4j logging API and force all log4j over slf4j
+    compile group: 'org.slf4j', name: 'slf4j-api', version: '+'
+    compile group: 'org.slf4j', name: 'log4j-over-slf4j', version: '+', transitive: false
+
+    // Use logback for testing (any non-mirth connect modules can copy this into their dependency file and set for runtime)
+    runtime group: 'ch.qos.logback', name: 'logback-classic', version: '+', transitive: false
+    runtime group: 'ch.qos.logback', name: 'logback-core', version: '+'
+
+    /**
+     * Testing
+     */
+
+    testCompile group: 'junit', name: 'junit', version: '4.12'
+
+    // Add cucumber to allow cucumber testing
+    // cucumberCompile group: 'info.cukes', name: 'cucumber-groovy', version: '+'
+}

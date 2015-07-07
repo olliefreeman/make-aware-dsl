@@ -1,1 +1,4 @@
-rootProject.name = 'make-aware-dsl'
+rootProject.name = 'make-dsl'
+
+include 'make-aware-dsl'
+include 'make-aware-dsl-test'

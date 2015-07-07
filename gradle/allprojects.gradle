@@ -1,0 +1,31 @@
+allprojects {
+    apply plugin: 'jacoco'
+
+    jacoco {
+        toolVersion = '+'
+    }
+
+    logger.quiet "Project: $name > group: $group, version: $version"
+
+    idea {
+        module {
+            excludeDirs += file('.idea')
+            excludeDirs += file('deploy')
+
+            downloadJavadoc = true
+            downloadSources = true
+
+            iml.withXml { provider ->
+                /**
+                 * Add gradle setup to the module
+                 */
+                provider.node.@'external.linked.project.path' = '$MODULE_DIR$'
+                provider.node.@'external.root.project.path' = '$MODULE_DIR$'
+                provider.node.@'external.system.id' = 'GRADLE'
+                provider.node.@'external.system.module.group' = ''
+                provider.node.@'external.system.module.version' = version
+            }
+        }
+    }
+
+}

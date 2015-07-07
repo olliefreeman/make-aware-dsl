@@ -6,7 +6,7 @@ dependencies {
     /**
      * Core dependencies
      */
-    compile group: 'org.codehaus.groovy', name: 'groovy-all', version: '2.4.+'
+    compile project(':make-aware-dsl')
 
     /**
      * Logging
@@ -22,9 +22,7 @@ dependencies {
     /**
      * Testing
      */
-
-    testCompile group: 'junit', name: 'junit', version: '4.12'
-    testCompile group: 'org.apache.commons', name: 'commons-io', version: '+'
+    compile group: 'junit', name: 'junit', version: '4.12'
 
     // Add cucumber to allow cucumber testing
     // cucumberCompile group: 'info.cukes', name: 'cucumber-groovy', version: '+'
