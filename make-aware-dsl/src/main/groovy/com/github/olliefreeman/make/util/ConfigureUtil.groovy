@@ -45,9 +45,30 @@ class ConfigureUtil {
      */
     static <T> T configure(@DelegatesTo.Target T theDelegate, int resolutionStrategy, @DelegatesTo Closure closure) {
         closure.delegate = theDelegate
-        logger.trace("Closure property: Owner: ${closure.owner.class.simpleName} || Delegate: ${closure.delegate.class.simpleName}")
+        logger.trace("Closure property: Owner: ${getClassName(closure.owner)} || Delegate: ${getClassName(closure.delegate)}")
         closure.resolveStrategy = resolutionStrategy
         closure()
         theDelegate
+    }
+
+    /**
+     * Fixing method for the class name for nests closures. For some reason this occasionally fails using the {@link Class#getSimpleName()},
+     * this method provides a fix.
+     *
+     * @param obj The object to get the class name for
+     * @return String representation of the class name
+     */
+    private static String getClassName(def obj){
+        Class clazz = obj.class
+        try{
+            return clazz.simpleName
+        }catch (InternalError ignored){
+            try {
+                return clazz.getName().substring(clazz.getEnclosingClass().getName().length());
+            } catch (IndexOutOfBoundsException ex) {
+                throw new InternalError("Malformed class name", ex);
+            }
+        }
+
     }
 }
