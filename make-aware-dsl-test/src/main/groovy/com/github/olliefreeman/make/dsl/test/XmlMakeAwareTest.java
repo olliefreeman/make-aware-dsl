@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import java.io.StringWriter;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -29,7 +30,7 @@ public class XmlMakeAwareTest extends GroovyAssert {
      * @return Map containing the default XML declaration
      */
     public static Map<String, Object> getXmlDeclaration() {
-        Map<String, Object> xmlDeclaration = new HashMap<>(2);
+        Map<String, Object> xmlDeclaration = new LinkedHashMap<>(2);
         xmlDeclaration.put("version", "1.0");
         xmlDeclaration.put("encoding", "UTF-8");
         return xmlDeclaration;

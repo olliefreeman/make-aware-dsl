@@ -106,6 +106,10 @@ subprojects {
         delete 'logs'
     }
 
+    build{
+        dependsOn 'install'
+    }
+
 
     /**
      * Add jars as artifacts, this will cause them to be built as part of assemble and will automatically be
